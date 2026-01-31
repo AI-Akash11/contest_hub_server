@@ -56,6 +56,10 @@ async function run() {
     const db = client.db('contestsDB')
     const contestsCollection = db.collection('contests')
 
+    app.get('/contests', async(req, res)=>{
+      const result = await contestsCollection.find().toArray();
+      res.send(result)
+    })
 
 
 
