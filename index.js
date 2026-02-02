@@ -56,12 +56,17 @@ async function run() {
     const db = client.db('contestsDB')
     const contestsCollection = db.collection('contests')
 
-    app.get('/contests', async(req, res)=>{
+    // all contest api-------------------------------------
+    app.get('/all-contests', async(req, res)=>{
       const result = await contestsCollection.find().toArray();
       res.send(result)
     })
 
-
+    // latest contest api------------------------------------
+    app.get('/latest-contests', async(req, res) =>{
+      const result = await contestsCollection.find().sort({createdAt: -1}).limit(6).toArray();
+      res.send(result)
+    })
 
 
 
