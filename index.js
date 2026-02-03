@@ -82,8 +82,15 @@ async function run() {
       const contestData = req.body;
       contestData.createdAt = new Date();
       contestData.deadline = new Date(contestData.deadline);
-      
+
       const result = await contestsCollection.insertOne(contestData);
+      res.send(result)
+    })
+
+    // creator contest api-----------------------------------
+    app.get('/my-contests/:email', async(req, res)=>{
+      const {email} = req.params;
+      const result = await contestsCollection.find({creatorEmail: email}).toArray();
       res.send(result)
     })
 
