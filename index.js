@@ -78,6 +78,14 @@ async function run() {
       res.send(result)
     })
 
+    app.post('/contest', async(req, res) =>{
+      const contestData = req.body;
+      contestData.createdAt = new Date();
+      contestData.deadline = new Date(contestData.deadline);
+      
+      const result = await contestsCollection.insertOne(contestData);
+      res.send(result)
+    })
 
 
 
