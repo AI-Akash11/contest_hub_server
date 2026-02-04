@@ -94,6 +94,14 @@ async function run() {
       res.send(result)
     })
 
+    app.delete('/my-contests/:contestId', async(req, res)=>{
+      const {contestId} = req.params;
+      console.log(contestId)
+      const query = {_id: new ObjectId(contestId)};
+      const result = await contestsCollection.deleteOne(query);
+      res.send(result)
+    })
+
 
 
     // Send a ping to confirm a successful connection
