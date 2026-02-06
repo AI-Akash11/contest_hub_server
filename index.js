@@ -53,18 +53,54 @@ async function run() {
   try {
     const db = client.db("contestsDB");
     const contestsCollection = db.collection("contests");
+    const paymentsCollection = db.collection("payments");
+    const usersCollection = db.collection("users");
 
+    // user api----------------------------------------
+    app.get('/user/:email', async(req, res)=>{
+      const email = req.params.email
+      const result = await usersCollection.findOne({email: email});
+      
+      res.send(result);
+    })
+
+    app.get('/user/role/:email', async(req, res)=>{
+      const email = req.params.email;
+      const result = await usersCollection.findOne({email})
+      res.send({role: result.role})
+    })
+
+    app.post("/user", async (req, res) => {
+      const userData = req.body;
+      userData.role = "user";
+      userData.createdAt = new Date();
+
+      const userExists = await usersCollection.findOne({
+        email: userData.email,
+      });
+
+      if (userExists) {
+        return res.send({
+          message: "User already exists",
+        });
+      }
+
+      const result = await usersCollection.insertOne(userData);
+
+      res.send(result);
+    });
+    
     // all contest api-------------------------------------
     app.get("/all-contests", async (req, res) => {
       const result = await contestsCollection.find().toArray();
       res.send(result);
     });
 
-    // latest contest api------------------------------------
-    app.get("/latest-contests", async (req, res) => {
+    // popular contest api------------------------------------
+    app.get("/popular-contests", async (req, res) => {
       const result = await contestsCollection
         .find()
-        .sort({ createdAt: -1 })
+        .sort({ participantCount: -1 })
         .limit(6)
         .toArray();
       res.send(result);
@@ -96,18 +132,27 @@ async function run() {
       res.send(result);
     });
 
+    // user participated api---------------------------------
+    app.get("/my-participated/:email", async (req, res) => {
+      const email = req.params.email;
+
+      const result = await paymentsCollection
+        .find({ participantEmail: email })
+        .toArray();
+
+      res.send(result);
+    });
+
     app.delete("/my-contests/:contestId", async (req, res) => {
       const { contestId } = req.params;
-      console.log(contestId);
       const query = { _id: new ObjectId(contestId) };
       const result = await contestsCollection.deleteOne(query);
       res.send(result);
     });
 
-    // payment endpoints
+    // payment endpoints----------------------------------
     app.post("/create-checkout-session", async (req, res) => {
       const paymentInfo = req.body;
-      console.log(paymentInfo);
 
       const session = await stripe.checkout.sessions.create({
         line_items: [
@@ -127,16 +172,66 @@ async function run() {
         customer_email: paymentInfo?.participant.email,
         mode: "payment",
         metadata: {
-          contestId: paymentInfo?.contestId,
-          participantEmail: paymentInfo?.participant.email,
-          participantName: paymentInfo?.participant.name,
-          participantimage: paymentInfo?.participant.image,
+          contestId: String(paymentInfo?.contestId || ""),
+          participantEmail: String(paymentInfo?.participant?.email),
+          participantName: String(paymentInfo?.participant?.name),
+          participantImage: String(paymentInfo?.participant?.image),
         },
-        success_url: `${process.env.CLIENT_DOMAIN}/payment-success`,
-        cancel_url: `${process.env.CLIENT_DOMAIN}/contest/${paymentInfo?.contestId}`
+
+        success_url: `${process.env.CLIENT_DOMAIN}/payment-success?session_id={CHECKOUT_SESSION_ID}`,
+        cancel_url: `${process.env.CLIENT_DOMAIN}/contest/${paymentInfo?.contestId}`,
       });
-      
-      res.send({url: session.url})
+
+      res.send({ url: session.url });
+    });
+
+    app.post("/payment-success", async (req, res) => {
+      const { sessionId } = req.body;
+
+      const session = await stripe.checkout.sessions.retrieve(sessionId);
+
+      const contest = await contestsCollection.findOne({
+        _id: new ObjectId(session.metadata.contestId),
+      });
+
+      const payment = await paymentsCollection.findOne({
+        transactionId: session.payment_intent,
+      });
+
+      if (session.status === "complete" && contest && !payment) {
+        const paymentInfo = {
+          contestId: session.metadata.contestId,
+          participantName: session.metadata.participantName,
+          participantEmail: session.metadata.participantEmail,
+          participantImage: session.metadata.participantImage,
+          price: session.amount_total / 100,
+          transactionId: session.payment_intent,
+          status: "paid",
+          paidAt: new Date(),
+          creator: contest.creator,
+          name: contest.name,
+          image: contest.image,
+        };
+
+        const result = await paymentsCollection.insertOne(paymentInfo);
+
+        await contestsCollection.updateOne(
+          {
+            _id: new ObjectId(session.metadata.contestId),
+          },
+          {
+            $inc: { participantCount: 1 },
+          },
+        );
+        return res.send({
+          transactionId: session.payment_intent,
+          paymentId: result.insertedId,
+        });
+      }
+      res.send({
+        transactionId: session.payment_intent,
+        paymentId: payment._id,
+      });
     });
 
     // Send a ping to confirm a successful connection
