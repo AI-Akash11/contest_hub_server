@@ -52,6 +52,7 @@ async function run() {
     const contestsCollection = db.collection("contests");
     const paymentsCollection = db.collection("payments");
     const usersCollection = db.collection("users");
+    const creatorRequestsCollection = db.collection("creatorRequests")
 
     // user api----------------------------------------
     app.get("/user/:email", async (req, res) => {
@@ -146,6 +147,25 @@ async function run() {
       const result = await contestsCollection.deleteOne(query);
       res.send(result);
     });
+
+    // become creator api-------------------------------
+
+    app.post("/become-creator", verifyJWT, async(req, res)=>{
+      const email = req.tokenEmail;
+      const requestExists = await creatorRequestsCollection.findOne({email})
+      if(requestExists){
+        return res.status(400).send({
+          message: "You have already requested to become a creator. Please wait patiently for the admin to review"
+        })
+      }
+
+      const requestData = {
+        email,
+        requestedAt: new Date(),
+      }
+      const result = await creatorRequestsCollection.insertOne(requestData)
+      res.send(result)
+    })
 
     // payment endpoints----------------------------------
     app.post("/create-checkout-session", async (req, res) => {
