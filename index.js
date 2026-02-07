@@ -149,6 +149,24 @@ async function run() {
     });
 
     // become creator api-------------------------------
+    app.get("/creator-requests",verifyJWT, async(req, res)=>{
+      const result = await creatorRequestsCollection.find().toArray();
+      res.send(result);
+    });
+
+    app.patch("/creator-requests/approve/:email", verifyJWT, async(req, res)=>{
+      const userEmail = req.params.email;
+      const query= {email : userEmail};
+      const updatedDoc = {
+        $set: {
+          role: "creator"
+        }
+      }
+      const result = await usersCollection.updateOne(query,updatedDoc);
+      await creatorRequestsCollection.deleteOne({email: userEmail})
+
+      res.send({success: true})
+    })
 
     app.post("/become-creator", verifyJWT, async(req, res)=>{
       const email = req.tokenEmail;
@@ -165,7 +183,7 @@ async function run() {
       }
       const result = await creatorRequestsCollection.insertOne(requestData)
       res.send(result)
-    })
+    });
 
     // payment endpoints----------------------------------
     app.post("/create-checkout-session", async (req, res) => {
