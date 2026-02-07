@@ -28,15 +28,12 @@ app.use(express.json());
 // jwt middlewares
 const verifyJWT = async (req, res, next) => {
   const token = req?.headers?.authorization?.split(" ")[1];
-  console.log(token);
   if (!token) return res.status(401).send({ message: "Unauthorized Access!" });
   try {
     const decoded = await admin.auth().verifyIdToken(token);
     req.tokenEmail = decoded.email;
-    console.log(decoded);
     next();
   } catch (err) {
-    console.log(err);
     return res.status(401).send({ message: "Unauthorized Access!", err });
   }
 };
@@ -57,18 +54,18 @@ async function run() {
     const usersCollection = db.collection("users");
 
     // user api----------------------------------------
-    app.get('/user/:email', async(req, res)=>{
-      const email = req.params.email
-      const result = await usersCollection.findOne({email: email});
-      
-      res.send(result);
-    })
-
-    app.get('/user/role/:email', async(req, res)=>{
+    app.get("/user/:email", async (req, res) => {
       const email = req.params.email;
-      const result = await usersCollection.findOne({email})
-      res.send({role: result.role})
-    })
+      const result = await usersCollection.findOne({ email: email });
+
+      res.send(result);
+    });
+
+    app.get("/role", verifyJWT, async (req, res) => {
+      const email = req.tokenEmail;
+      const result = await usersCollection.findOne({ email });
+      res.send({ role: result.role });
+    });
 
     app.post("/user", async (req, res) => {
       const userData = req.body;
@@ -89,7 +86,7 @@ async function run() {
 
       res.send(result);
     });
-    
+
     // all contest api-------------------------------------
     app.get("/all-contests", async (req, res) => {
       const result = await contestsCollection.find().toArray();
@@ -133,8 +130,8 @@ async function run() {
     });
 
     // user participated api---------------------------------
-    app.get("/my-participated/:email", async (req, res) => {
-      const email = req.params.email;
+    app.get("/my-participated", verifyJWT, async (req, res) => {
+      const email = req.tokenEmail;
 
       const result = await paymentsCollection
         .find({ participantEmail: email })
