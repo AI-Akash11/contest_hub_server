@@ -52,7 +52,7 @@ async function run() {
     const contestsCollection = db.collection("contests");
     const paymentsCollection = db.collection("payments");
     const usersCollection = db.collection("users");
-    const creatorRequestsCollection = db.collection("creatorRequests")
+    const creatorRequestsCollection = db.collection("creatorRequests");
 
     // user api----------------------------------------
     app.get("/user/:email", async (req, res) => {
@@ -149,41 +149,53 @@ async function run() {
     });
 
     // become creator api-------------------------------
-    app.get("/creator-requests",verifyJWT, async(req, res)=>{
+    app.get("/creator-requests", verifyJWT, async (req, res) => {
       const result = await creatorRequestsCollection.find().toArray();
       res.send(result);
     });
 
-    app.patch("/creator-requests/approve/:email", verifyJWT, async(req, res)=>{
-      const userEmail = req.params.email;
-      const query= {email : userEmail};
-      const updatedDoc = {
-        $set: {
-          role: "creator"
-        }
-      }
-      const result = await usersCollection.updateOne(query,updatedDoc);
-      await creatorRequestsCollection.deleteOne({email: userEmail})
-
-      res.send({success: true})
-    })
-
-    app.post("/become-creator", verifyJWT, async(req, res)=>{
+        app.post("/become-creator", verifyJWT, async (req, res) => {
       const email = req.tokenEmail;
-      const requestExists = await creatorRequestsCollection.findOne({email})
-      if(requestExists){
+      console.log(email)
+      const requestExists = await creatorRequestsCollection.findOne({ email });
+      if (requestExists) {
         return res.status(400).send({
-          message: "You have already requested to become a creator. Please wait patiently for the admin to review"
-        })
+          message:
+            "You have already requested to become a creator. Please wait patiently for the admin to review",
+        });
       }
 
       const requestData = {
         email,
         requestedAt: new Date(),
-      }
-      const result = await creatorRequestsCollection.insertOne(requestData)
-      res.send(result)
+      };
+      const result = await creatorRequestsCollection.insertOne(requestData);
+      res.send(result);
     });
+
+    app.patch(
+      "/creator-requests/approve/:email",
+      verifyJWT,
+      async (req, res) => {
+        const userEmail = req.params.email;
+        const query = { email: userEmail };
+        const updatedDoc = {
+          $set: {
+            role: "creator",
+          },
+        };
+        const result = await usersCollection.updateOne(query, updatedDoc);
+        await creatorRequestsCollection.deleteOne({ email: userEmail });
+
+        res.send({ success: true });
+      },
+    );
+
+    app.delete("/creator-requests/delete/:email", verifyJWT, async(req, res)=>{
+      const email = req.params.email;
+      const result = await creatorRequestsCollection.deleteOne({email});
+      res.send(result)
+    })
 
     // payment endpoints----------------------------------
     app.post("/create-checkout-session", async (req, res) => {
