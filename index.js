@@ -68,6 +68,11 @@ async function run() {
       res.send({ role: result.role });
     });
 
+    app.get("/all-users", verifyJWT, async(req, res)=>{
+      const result = await usersCollection.find().sort({createdAt: -1}).toArray();
+      res.send(result);
+    })
+
     app.post("/user", async (req, res) => {
       const userData = req.body;
       userData.role = "user";
@@ -87,6 +92,19 @@ async function run() {
 
       res.send(result);
     });
+
+    app.patch("/user/role/:email", verifyJWT, async(req, res)=>{
+      const email = req.params.email;
+      const userRole = req.body.role;
+      const roleUpdate = {
+        $set: {
+          role: userRole
+        }
+      }
+      const result = await usersCollection.updateOne({email}, roleUpdate);
+
+      res.send({ message: "Role updated successfully"})
+    })
 
     // all contest api-------------------------------------
     app.get("/all-contests", async (req, res) => {
