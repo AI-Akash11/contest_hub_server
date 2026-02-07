@@ -54,6 +54,24 @@ async function run() {
     const usersCollection = db.collection("users");
     const creatorRequestsCollection = db.collection("creatorRequests");
 
+    // role middlewares
+    const verifyAdmin = async (req, res, next) => {
+      const email = req.tokenEmail;
+      const user = await usersCollection.findOne({ email });
+      if (user?.role !== "admin") {
+        return res.status(403).send({ message: "Admin only Actions!", role: user?.role });
+      }
+      next();
+    };
+    const verifyCreator = async (req, res, next) => {
+      const email = req.tokenEmail;
+      const user = await usersCollection.findOne({ email });
+      if (user?.role !== "creator") {
+        return res.status(403).send({ message: "Creator only Actions!", role: user?.role });
+      }
+      next();
+    };
+
     // user api----------------------------------------
     app.get("/user/:email", async (req, res) => {
       const email = req.params.email;
@@ -68,10 +86,13 @@ async function run() {
       res.send({ role: result.role });
     });
 
-    app.get("/all-users", verifyJWT, async(req, res)=>{
-      const result = await usersCollection.find().sort({createdAt: -1}).toArray();
+    app.get("/all-users", verifyJWT, async (req, res) => {
+      const result = await usersCollection
+        .find()
+        .sort({ createdAt: -1 })
+        .toArray();
       res.send(result);
-    })
+    });
 
     app.post("/user", async (req, res) => {
       const userData = req.body;
@@ -93,18 +114,18 @@ async function run() {
       res.send(result);
     });
 
-    app.patch("/user/role/:email", verifyJWT, async(req, res)=>{
+    app.patch("/user/role/:email", verifyJWT, async (req, res) => {
       const email = req.params.email;
       const userRole = req.body.role;
       const roleUpdate = {
         $set: {
-          role: userRole
-        }
-      }
-      const result = await usersCollection.updateOne({email}, roleUpdate);
+          role: userRole,
+        },
+      };
+      const result = await usersCollection.updateOne({ email }, roleUpdate);
 
-      res.send({ message: "Role updated successfully"})
-    })
+      res.send({ message: "Role updated successfully" });
+    });
 
     // all contest api-------------------------------------
     app.get("/all-contests", async (req, res) => {
@@ -172,9 +193,9 @@ async function run() {
       res.send(result);
     });
 
-        app.post("/become-creator", verifyJWT, async (req, res) => {
+    app.post("/become-creator", verifyJWT, async (req, res) => {
       const email = req.tokenEmail;
-      console.log(email)
+      console.log(email);
       const requestExists = await creatorRequestsCollection.findOne({ email });
       if (requestExists) {
         return res.status(400).send({
@@ -209,11 +230,15 @@ async function run() {
       },
     );
 
-    app.delete("/creator-requests/delete/:email", verifyJWT, async(req, res)=>{
-      const email = req.params.email;
-      const result = await creatorRequestsCollection.deleteOne({email});
-      res.send(result)
-    })
+    app.delete(
+      "/creator-requests/delete/:email",
+      verifyJWT,
+      async (req, res) => {
+        const email = req.params.email;
+        const result = await creatorRequestsCollection.deleteOne({ email });
+        res.send(result);
+      },
+    );
 
     // payment endpoints----------------------------------
     app.post("/create-checkout-session", async (req, res) => {
