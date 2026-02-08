@@ -133,7 +133,7 @@ async function run() {
 
     // all contest api-------------------------------------
     app.get("/all-contests", async (req, res) => {
-      const query = {status: "approved"}
+      const query = { status: "approved" };
       const result = await contestsCollection.find(query).toArray();
       res.send(result);
     });
@@ -165,6 +165,11 @@ async function run() {
             .status(404)
             .send({ message: "Contest not found or already processed" });
         }
+
+        await usersCollection.updateOne(
+          { email: req.tokenEmail },
+          { $inc: { "adminActions.approved": 1 } },
+        );
         res.send(result);
       },
     );
@@ -187,6 +192,11 @@ async function run() {
             .status(404)
             .send({ message: "Contest not found or already processed" });
         }
+
+        await usersCollection.updateOne(
+          { email: req.tokenEmail },
+          { $inc: { "adminActions.rejected": 1 } },
+        );
         res.send(result);
       },
     );
@@ -197,14 +207,22 @@ async function run() {
       verifyAdmin,
       async (req, res) => {
         const { contestId } = req.params;
-        const query = { _id: new ObjectId(contestId), status: "pending" };
+        const query = {
+          _id: new ObjectId(contestId),
+          status: { $ne: "approved" },
+        };
 
         const result = await contestsCollection.deleteOne(query);
-        if (result.deletedCount  === 0) {
+        if (result.deletedCount === 0) {
           return res
             .status(404)
             .send({ message: "Contest not found or already processed" });
         }
+
+        await usersCollection.updateOne(
+          { email: req.tokenEmail },
+          { $inc: { "adminActions.deleted": 1 } },
+        );
         res.send(result);
       },
     );
@@ -212,7 +230,7 @@ async function run() {
     // popular contest api------------------------------------
     app.get("/popular-contests", async (req, res) => {
       const result = await contestsCollection
-        .find({status: "approved"})
+        .find({ status: "approved" })
         .sort({ participantCount: -1 })
         .limit(6)
         .toArray();
@@ -267,6 +285,15 @@ async function run() {
 
       res.send(result);
     });
+
+    app.get("/check-payments/:contestId", verifyJWT, async (req, res)=>{
+      const {contestId} = req.params;
+      const email = req.tokenEmail;
+
+      const result = await paymentsCollection.findOne({contestId,participantEmail: email, status: "paid"})
+
+      res.send({hasPaid: !!result})
+    })
 
     // become creator api-------------------------------
     app.get("/creator-requests", verifyJWT, verifyAdmin, async (req, res) => {
