@@ -59,7 +59,9 @@ async function run() {
       const email = req.tokenEmail;
       const user = await usersCollection.findOne({ email });
       if (user?.role !== "admin") {
-        return res.status(403).send({ message: "Admin only Actions!", role: user?.role });
+        return res
+          .status(403)
+          .send({ message: "Admin only Actions!", role: user?.role });
       }
       next();
     };
@@ -67,15 +69,17 @@ async function run() {
       const email = req.tokenEmail;
       const user = await usersCollection.findOne({ email });
       if (user?.role !== "creator") {
-        return res.status(403).send({ message: "Creator only Actions!", role: user?.role });
+        return res
+          .status(403)
+          .send({ message: "Creator only Actions!", role: user?.role });
       }
       next();
     };
 
     // user api----------------------------------------
-    app.get("/user/:email", async (req, res) => {
-      const email = req.params.email;
-      const result = await usersCollection.findOne({ email: email });
+    app.get("/user", verifyJWT, async (req, res) => {
+      const email = req.tokenEmail;
+      const result = await usersCollection.findOne({ email });
 
       res.send(result);
     });
@@ -86,7 +90,7 @@ async function run() {
       res.send({ role: result.role });
     });
 
-    app.get("/all-users", verifyJWT, async (req, res) => {
+    app.get("/all-users", verifyJWT, verifyAdmin, async (req, res) => {
       const result = await usersCollection
         .find()
         .sort({ createdAt: -1 })
@@ -114,7 +118,7 @@ async function run() {
       res.send(result);
     });
 
-    app.patch("/user/role/:email", verifyJWT, async (req, res) => {
+    app.patch("/user/role/:email", verifyJWT, verifyAdmin, async (req, res) => {
       const email = req.params.email;
       const userRole = req.body.role;
       const roleUpdate = {
@@ -138,20 +142,20 @@ async function run() {
       const result = await contestsCollection
         .find()
         .sort({ participantCount: -1 })
-        .limit(6)
+        .limit(3)
         .toArray();
       res.send(result);
     });
 
     // single contest api------------------------------------
-    app.get("/contest/:id", async (req, res) => {
+    app.get("/contest/:id", verifyJWT, async (req, res) => {
       const id = req.params.id;
       const query = { _id: new ObjectId(id) };
       const result = await contestsCollection.findOne(query);
       res.send(result);
     });
 
-    app.post("/contest", async (req, res) => {
+    app.post("/contest", verifyJWT, verifyCreator, async (req, res) => {
       const contestData = req.body;
       contestData.createdAt = new Date();
       contestData.deadline = new Date(contestData.deadline);
@@ -161,13 +165,25 @@ async function run() {
     });
 
     // creator contest api-----------------------------------
-    app.get("/my-contests/:email", async (req, res) => {
-      const { email } = req.params;
+    app.get("/my-contests", verifyJWT, verifyCreator, async (req, res) => {
+      const email = req.tokenEmail;
       const result = await contestsCollection
         .find({ "creator.email": email })
         .toArray();
       res.send(result);
     });
+
+    app.delete(
+      "/my-contests/:contestId",
+      verifyJWT,
+      verifyCreator,
+      async (req, res) => {
+        const { contestId } = req.params;
+        const query = { _id: new ObjectId(contestId) };
+        const result = await contestsCollection.deleteOne(query);
+        res.send(result);
+      },
+    );
 
     // user participated api---------------------------------
     app.get("/my-participated", verifyJWT, async (req, res) => {
@@ -180,15 +196,8 @@ async function run() {
       res.send(result);
     });
 
-    app.delete("/my-contests/:contestId", async (req, res) => {
-      const { contestId } = req.params;
-      const query = { _id: new ObjectId(contestId) };
-      const result = await contestsCollection.deleteOne(query);
-      res.send(result);
-    });
-
     // become creator api-------------------------------
-    app.get("/creator-requests", verifyJWT, async (req, res) => {
+    app.get("/creator-requests", verifyJWT, verifyAdmin, async (req, res) => {
       const result = await creatorRequestsCollection.find().toArray();
       res.send(result);
     });
@@ -215,6 +224,7 @@ async function run() {
     app.patch(
       "/creator-requests/approve/:email",
       verifyJWT,
+      verifyAdmin,
       async (req, res) => {
         const userEmail = req.params.email;
         const query = { email: userEmail };
@@ -233,6 +243,7 @@ async function run() {
     app.delete(
       "/creator-requests/delete/:email",
       verifyJWT,
+      verifyAdmin,
       async (req, res) => {
         const email = req.params.email;
         const result = await creatorRequestsCollection.deleteOne({ email });
@@ -241,7 +252,7 @@ async function run() {
     );
 
     // payment endpoints----------------------------------
-    app.post("/create-checkout-session", async (req, res) => {
+    app.post("/create-checkout-session",verifyJWT, async (req, res) => {
       const paymentInfo = req.body;
 
       const session = await stripe.checkout.sessions.create({
@@ -275,7 +286,7 @@ async function run() {
       res.send({ url: session.url });
     });
 
-    app.post("/payment-success", async (req, res) => {
+    app.post("/payment-success",verifyJWT, async (req, res) => {
       const { sessionId } = req.body;
 
       const session = await stripe.checkout.sessions.retrieve(sessionId);
