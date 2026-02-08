@@ -133,16 +133,88 @@ async function run() {
 
     // all contest api-------------------------------------
     app.get("/all-contests", async (req, res) => {
-      const result = await contestsCollection.find().toArray();
+      const query = {status: "approved"}
+      const result = await contestsCollection.find(query).toArray();
       res.send(result);
     });
+
+    // manage contest api----------------------------------------
+    app.get("/admin/contests", verifyJWT, verifyAdmin, async (req, res) => {
+      const result = await contestsCollection
+        .find()
+        .sort({ createdAt: -1 })
+        .toArray();
+      res.send(result);
+    });
+
+    app.patch(
+      "/admin/contests/approve/:contestId",
+      verifyJWT,
+      verifyAdmin,
+      async (req, res) => {
+        const { contestId } = req.params;
+        const query = { _id: new ObjectId(contestId), status: "pending" };
+        const updatedDoc = {
+          $set: {
+            status: "approved",
+          },
+        };
+        const result = await contestsCollection.updateOne(query, updatedDoc);
+        if (result.matchedCount === 0) {
+          return res
+            .status(404)
+            .send({ message: "Contest not found or already processed" });
+        }
+        res.send(result);
+      },
+    );
+
+    app.patch(
+      "/admin/contests/reject/:contestId",
+      verifyJWT,
+      verifyAdmin,
+      async (req, res) => {
+        const { contestId } = req.params;
+        const query = { _id: new ObjectId(contestId), status: "pending" };
+        const updatedDoc = {
+          $set: {
+            status: "rejected",
+          },
+        };
+        const result = await contestsCollection.updateOne(query, updatedDoc);
+        if (result.matchedCount === 0) {
+          return res
+            .status(404)
+            .send({ message: "Contest not found or already processed" });
+        }
+        res.send(result);
+      },
+    );
+
+    app.delete(
+      "/admin/contests/:contestId",
+      verifyJWT,
+      verifyAdmin,
+      async (req, res) => {
+        const { contestId } = req.params;
+        const query = { _id: new ObjectId(contestId), status: "pending" };
+
+        const result = await contestsCollection.deleteOne(query);
+        if (result.deletedCount  === 0) {
+          return res
+            .status(404)
+            .send({ message: "Contest not found or already processed" });
+        }
+        res.send(result);
+      },
+    );
 
     // popular contest api------------------------------------
     app.get("/popular-contests", async (req, res) => {
       const result = await contestsCollection
-        .find()
+        .find({status: "approved"})
         .sort({ participantCount: -1 })
-        .limit(3)
+        .limit(6)
         .toArray();
       res.send(result);
     });
@@ -252,7 +324,7 @@ async function run() {
     );
 
     // payment endpoints----------------------------------
-    app.post("/create-checkout-session",verifyJWT, async (req, res) => {
+    app.post("/create-checkout-session", verifyJWT, async (req, res) => {
       const paymentInfo = req.body;
 
       const session = await stripe.checkout.sessions.create({
@@ -286,7 +358,7 @@ async function run() {
       res.send({ url: session.url });
     });
 
-    app.post("/payment-success",verifyJWT, async (req, res) => {
+    app.post("/payment-success", async (req, res) => {
       const { sessionId } = req.body;
 
       const session = await stripe.checkout.sessions.retrieve(sessionId);
