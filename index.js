@@ -53,6 +53,7 @@ async function run() {
     const paymentsCollection = db.collection("payments");
     const usersCollection = db.collection("users");
     const creatorRequestsCollection = db.collection("creatorRequests");
+    const submissionsCollection = db.collection("submissions");
 
     // role middlewares
     const verifyAdmin = async (req, res, next) => {
@@ -227,6 +228,74 @@ async function run() {
       },
     );
 
+    // submissions api-------------------------------------------
+    app.get("/my-submission/:contestId", verifyJWT, async (req, res) => {
+      const { contestId } = req.params;
+      const email = req.tokenEmail;
+      const result = await submissionsCollection.findOne({
+        contestId,
+        participantEmail: email,
+      });
+      res.send(result || {});
+    });
+
+    app.post("/submit-task", verifyJWT, async (req, res) => {
+      const { contestId, submissionLink } = req.body;
+      const email = req.tokenEmail;
+
+      const registration = await paymentsCollection.findOne({
+        contestId,
+        participantEmail: email,
+        status: "paid",
+      });
+      if (!registration) {
+        return res.status(403).send({
+          message: "You must register for this contest first",
+        });
+      }
+
+      const contest = await contestsCollection.findOne({
+        _id: new ObjectId(contestId),
+      });
+
+      if (new Date(contest.deadline) < new Date()) {
+        return res.status(400).send({
+          message: "Contest deadline has passed",
+        });
+      }
+
+      const submissionExists = await submissionsCollection.findOne({
+        contestId,
+        participantEmail: email,
+      });
+
+      if (submissionExists) {
+        await submissionsCollection.updateOne(
+          { contestId, participantEmail: email },
+          {
+            $set: {
+              submissionLink,
+            },
+          },
+        );
+        res.send({ message: "Submission updated successfully" });
+      } else {
+        const submissionData = {
+          contestId,
+          contestName: contest.name,
+          participantEmail: email,
+          participantName: registration.participantName,
+          participantImage: registration.participantImage,
+          submissionLink,
+          status: "pending",
+          submittedAt: new Date(),
+        };
+
+        await submissionsCollection.insertOne(submissionData);
+        res.send({ message: "Submission recorded successfully" });
+      }
+    });
+
     // popular contest api------------------------------------
     app.get("/popular-contests", async (req, res) => {
       const result = await contestsCollection
@@ -286,14 +355,18 @@ async function run() {
       res.send(result);
     });
 
-    app.get("/check-payments/:contestId", verifyJWT, async (req, res)=>{
-      const {contestId} = req.params;
+    app.get("/check-payments/:contestId", verifyJWT, async (req, res) => {
+      const { contestId } = req.params;
       const email = req.tokenEmail;
 
-      const result = await paymentsCollection.findOne({contestId,participantEmail: email, status: "paid"})
+      const result = await paymentsCollection.findOne({
+        contestId,
+        participantEmail: email,
+        status: "paid",
+      });
 
-      res.send({hasPaid: !!result})
-    })
+      res.send({ hasPaid: !!result });
+    });
 
     // become creator api-------------------------------
     app.get("/creator-requests", verifyJWT, verifyAdmin, async (req, res) => {
