@@ -80,14 +80,18 @@ async function run() {
     // user api----------------------------------------
     app.get("/user", verifyJWT, async (req, res) => {
       const email = req.tokenEmail;
-      const result = await usersCollection.findOne({ email });
+      const result = await usersCollection.findOne({
+        email: { $regex: `^${email}$`, $options: "i" },
+      });
 
       res.send(result);
     });
 
     app.get("/role", verifyJWT, async (req, res) => {
-      const email = req.tokenEmail;
-      const result = await usersCollection.findOne({ email });
+      const result = await usersCollection.findOne({ email: req.tokenEmail });
+      if (!result) {
+        return res.status(404).send({ message: "User not found" });
+      }
       res.send({ role: result.role });
     });
 
@@ -103,6 +107,23 @@ async function run() {
       const userData = req.body;
       userData.role = "user";
       userData.createdAt = new Date();
+      userData.userActions = {
+        contestsParticipated: 0,
+        contestsWon: 0,
+        totalWinnings: 0,
+      };
+
+      userData.creatorActions = {
+        contestsCreated: 0,
+        contestsCompleted: 0,
+        totalPrizePaid: 0,
+      };
+
+      userData.adminActions = {
+        approved: 0,
+        rejected: 0,
+        deleted: 0,
+      };
 
       const userExists = await usersCollection.findOne({
         email: userData.email,
@@ -229,6 +250,33 @@ async function run() {
     );
 
     // submissions api-------------------------------------------
+
+    app.get(
+      "/contest-submissions/:contestId",
+      verifyJWT,
+      verifyCreator,
+      async (req, res) => {
+        const { contestId } = req.params;
+        const creatorEmail = req.tokenEmail;
+
+        const contest = await contestsCollection.findOne({
+          _id: new ObjectId(contestId),
+          "creator.email": creatorEmail,
+        });
+
+        if (!contest) {
+          return res.status(403).send({ message: "Forbidden access" });
+        }
+
+        const result = await submissionsCollection
+          .find({ contestId })
+          .sort({ submittedAt: -1 })
+          .toArray();
+
+        res.send(result);
+      },
+    );
+
     app.get("/my-submission/:contestId", verifyJWT, async (req, res) => {
       const { contestId } = req.params;
       const email = req.tokenEmail;
@@ -296,6 +344,117 @@ async function run() {
       }
     });
 
+    // winner api------------------------------------
+    app.patch(
+      "/submissions/declare-winner/:submissionId",
+      verifyJWT,
+      verifyCreator,
+      async (req, res) => {
+        const { submissionId } = req.params;
+
+        const submission = await submissionsCollection.findOne({
+          _id: new ObjectId(submissionId),
+        });
+
+        if (!submission) {
+          return res.status(404).send({ message: "Submission not found" });
+        }
+
+        const contest = await contestsCollection.findOne({
+          _id: new ObjectId(submission.contestId),
+        });
+
+        if (!contest) {
+          return res.status(404).send({ message: "Contest not found" });
+        }
+
+        if (contest.creator.email !== req.tokenEmail) {
+          return res
+            .status(403)
+            .send({ message: "Only contest creator can declare winner" });
+        }
+
+        if (contest.winner?.status === "declared") {
+          return res.status(400).send({
+            message: "Winner has already been declared for this contest",
+          });
+        }
+
+        await submissionsCollection.updateMany(
+          { contestId: submission.contestId },
+          { $set: { status: "not_selected" } },
+        );
+
+        await submissionsCollection.updateOne(
+          { _id: new ObjectId(submissionId) },
+          { $set: { status: "winner" } },
+        );
+
+        await contestsCollection.updateOne(
+          { _id: new ObjectId(submission.contestId) },
+          {
+            $set: {
+              winner: {
+                status: "declared",
+                name: submission.participantName,
+                email: submission.participantEmail,
+                image: submission.participantImage,
+                submissionId,
+                declaredAt: new Date(),
+              },
+            },
+          },
+        );
+
+        await usersCollection.updateOne(
+          { email: submission.participantEmail },
+          {
+            $inc: {
+              "userActions.contestsWon": 1,
+              "userActions.totalWinnings": contest.prizeMoney,
+            },
+          },
+        );
+
+        await usersCollection.updateOne(
+          { email: contest.creator.email },
+          {
+            $inc: {
+              "creatorActions.contestsCompleted": 1,
+              "creatorActions.totalPrizePaid": contest.prizeMoney,
+            },
+          },
+        );
+
+        res.send({ message: "Winner declared successfully" });
+      },
+    );
+
+    app.get("/my-winnings", verifyJWT, async (req, res) => {
+      const email = req.tokenEmail;
+
+      const winnings = await contestsCollection
+        .find({
+          "winner.email": email,
+          "winner.status": "declared",
+        })
+        .project({
+          name: 1,
+          image: 1,
+          prizeMoney: 1,
+        })
+        .toArray();
+
+      const formatted = winnings.map((contest) => ({
+        contestId: contest._id,
+        name: contest.name,
+        image: contest.image,
+        prize: contest.prizeMoney,
+      }));
+
+          res.send(formatted);
+    });
+
     // popular contest api------------------------------------
     app.get("/popular-contests", async (req, res) => {
       const result = await contestsCollection
@@ -319,7 +478,22 @@ async function run() {
       contestData.createdAt = new Date();
       contestData.deadline = new Date(contestData.deadline);
 
+      contestData.winner = {
+        status: "pending",
+        name: null,
+        email: null,
+        image: null,
+      };
+
       const result = await contestsCollection.insertOne(contestData);
+      await usersCollection.updateOne(
+        { email: req.tokenEmail },
+        {
+          $inc: {
+            "creatorActions.contestsCreated": 1,
+          },
+        },
+      );
       res.send(result);
     });
 
@@ -339,6 +513,18 @@ async function run() {
       async (req, res) => {
         const { contestId } = req.params;
         const query = { _id: new ObjectId(contestId) };
+
+        const contest = await contestsCollection.findOne(query);
+        if (!contest) {
+          return res.status(404).send({ message: "Contest not found" });
+        }
+
+        if (contest.status !== "pending") {
+          return res.status(400).send({
+            message: "Only pending contests can be deleted",
+          });
+        }
+
         const result = await contestsCollection.deleteOne(query);
         res.send(result);
       },
@@ -494,6 +680,15 @@ async function run() {
           },
           {
             $inc: { participantCount: 1 },
+          },
+        );
+
+        await usersCollection.updateOne(
+          { email: session.metadata.participantEmail },
+          {
+            $inc: {
+              "userActions.contestsParticipated": 1,
+            },
           },
         );
         return res.send({
