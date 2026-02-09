@@ -77,7 +77,7 @@ async function run() {
       next();
     };
 
-    // user api----------------------------------------
+    // user api--------------------------------------------------------------
     app.get("/user", verifyJWT, async (req, res) => {
       const email = req.tokenEmail;
       const result = await usersCollection.findOne({
@@ -153,14 +153,14 @@ async function run() {
       res.send({ message: "Role updated successfully" });
     });
 
-    // all contest api-------------------------------------
+    // all contest api-----------------------------------------------------
     app.get("/all-contests", async (req, res) => {
       const query = { status: "approved" };
       const result = await contestsCollection.find(query).toArray();
       res.send(result);
     });
 
-    // manage contest api----------------------------------------
+    // manage contest api--------------------------------------------------
     app.get("/admin/contests", verifyJWT, verifyAdmin, async (req, res) => {
       const result = await contestsCollection
         .find()
@@ -452,7 +452,7 @@ async function run() {
         prize: contest.prizeMoney,
       }));
 
-          res.send(formatted);
+      res.send(formatted);
     });
 
     // popular contest api------------------------------------
@@ -495,6 +495,61 @@ async function run() {
         },
       );
       res.send(result);
+    });
+
+    app.patch("/contest/:id", verifyJWT, verifyCreator, async (req, res) => {
+      const { id } = req.params;
+      const updatedData = req.body;
+      const email = req.tokenEmail;
+
+      const contest = await contestsCollection.findOne({
+        _id: new ObjectId(id),
+      });
+
+      if (!contest) {
+        return res.status(404).send({ message: "Contest not found" });
+      }
+
+      if (contest.creator.email !== email) {
+        return res.status(403).send({
+          message: "You can only edit your own contests",
+        });
+      }
+
+      if (contest.status !== "pending") {
+        return res.status(400).send({
+          message: "Only pending contests can be edited.",
+        });
+      }
+
+      if (!updatedData) {
+        return res.status(400).send({
+          message: "Updated Data is required",
+        });
+      }
+
+      const result = await contestsCollection.updateOne(
+        { _id: new ObjectId(id) },
+        {
+          $set: {
+            name: updatedData.name,
+            image: updatedData.image,
+            description: updatedData.description,
+            contestType: updatedData.contestType,
+            prizeMoney: updatedData.prizeMoney,
+            entryFee: updatedData.entryFee,
+            taskInstruction: updatedData.taskInstruction,
+            deadline: new Date(updatedData.deadline),
+            updatedAt: new Date(),
+          },
+        },
+      );
+
+      if (result.matchedCount === 0) {
+        return res.status(404).send({ message: "Contest not found" });
+      }
+
+      res.send({ message: "Contest updated successfully" });
     });
 
     // creator contest api-----------------------------------
