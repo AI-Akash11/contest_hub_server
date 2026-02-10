@@ -153,6 +153,32 @@ async function run() {
       res.send({ message: "Role updated successfully" });
     });
 
+    app.patch("/user/update", verifyJWT, async (req, res) => {
+      const email = req.tokenEmail;
+      const { name, bio, image } = req.body;
+      const result = await usersCollection.updateOne(
+        { email },
+        {
+          $set: {
+            name,
+            bio,
+            image,
+            updatedAt: new Date(),
+          },
+        },
+      );
+
+      if (result.matchedCount === 0) {
+        return res.status(404).send({ message: "User not found" });
+      }
+
+      const updatedUser = await usersCollection.findOne({ email });
+      res.send({
+        message: "Profile updated successfully",
+        user: updatedUser,
+      });
+    });
+
     // all contest api-----------------------------------------------------
     app.get("/all-contests", async (req, res) => {
       const query = { status: "approved" };
