@@ -613,13 +613,77 @@ async function run() {
 
     // user participated api---------------------------------
     app.get("/my-participated", verifyJWT, async (req, res) => {
-      const email = req.tokenEmail;
+      try {
+        const email = req.tokenEmail;
 
-      const result = await paymentsCollection
-        .find({ participantEmail: email })
-        .toArray();
+        const result = await paymentsCollection
+          .aggregate([
+            // Match payments for this user
+            {
+              $match: {
+                participantEmail: email,
+                status: "paid",
+              },
+            },
+            // Convert contestId string to ObjectId for lookup
+            {
+              $addFields: {
+                contestObjectId: { $toObjectId: "$contestId" },
+              },
+            },
+            // Join with contests collection
+            {
+              $lookup: {
+                from: "contests",
+                localField: "contestObjectId",
+                foreignField: "_id",
+                as: "contestDetails",
+              },
+            },
+            // Unwind the array (since lookup returns an array)
+            {
+              $unwind: {
+                path: "$contestDetails",
+                preserveNullAndEmptyArrays: true,
+              },
+            },
+            // Add deadline from contest to payment document
+            {
+              $addFields: {
+                deadline: "$contestDetails.deadline",
+                contestStatus: "$contestDetails.status",
+              },
+            },
+            // Sort by deadline (most recent first)
+            {
+              $sort: { deadline: -1 },
+            },
+            // Project only the fields you need
+            {
+              $project: {
+                _id: 1,
+                contestId: 1,
+                participantName: 1,
+                participantEmail: 1,
+                participantImage: 1,
+                price: 1,
+                transactionId: 1,
+                status: 1,
+                paidAt: 1,
+                name: 1,
+                image: 1,
+                deadline: 1,
+                contestStatus: 1,
+              },
+            },
+          ])
+          .toArray();
 
-      res.send(result);
+        res.send(result);
+      } catch (error) {
+        console.error("Get participated contests error:", error);
+        res.status(500).send({ message: "Server error" });
+      }
     });
 
     app.get("/check-payments/:contestId", verifyJWT, async (req, res) => {
