@@ -179,10 +179,42 @@ async function run() {
       });
     });
 
+    // leaderboard api----------------------------------------------------
+    app.get("/leaderboard", async (req, res) => {
+      const leaderboard = await usersCollection
+        .find({ "userActions.contestsWon": { $gt: 0 } })
+        .project({
+          name: 1,
+          image: 1,
+          "userActions.contestsWon": 1,
+          "userActions.totalWinnings": 1,
+        })
+        .sort({
+          "userActions.totalWinnings": -1,
+          "userActions.contestsWon": -1,
+        })
+        .limit(10)
+        .toArray();
+
+      const formatted = leaderboard.map((user, index) => ({
+        id: user._id,
+        rank: index + 1,
+        name: user.name,
+        image: user.image,
+        wins: user.userActions.contestsWon,
+        earnings: user.userActions.totalWinnings,
+      }));
+
+      res.send(formatted)
+    });
+
     // all contest api-----------------------------------------------------
     app.get("/all-contests", async (req, res) => {
       const query = { status: "approved" };
-      const result = await contestsCollection.find(query).toArray();
+      const result = await contestsCollection
+        .find(query)
+        .sort({ deadline: -1 })
+        .toArray();
       res.send(result);
     });
 
@@ -583,6 +615,7 @@ async function run() {
       const email = req.tokenEmail;
       const result = await contestsCollection
         .find({ "creator.email": email })
+        .sort({ deadline: -1 })
         .toArray();
       res.send(result);
     });
