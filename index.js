@@ -200,12 +200,11 @@ async function run() {
         id: user._id,
         rank: index + 1,
         name: user.name,
-        image: user.image,
+        avatar: user.image,
         wins: user.userActions.contestsWon,
         earnings: user.userActions.totalWinnings,
       }));
-
-      res.send(formatted)
+      res.send(formatted);
     });
 
     // all contest api-----------------------------------------------------
@@ -430,6 +429,16 @@ async function run() {
           return res
             .status(403)
             .send({ message: "Only contest creator can declare winner" });
+        }
+
+        const contestDeadline = new Date(contest.deadline);
+        const now = new Date();
+
+        if (now < contestDeadline) {
+          return res.status(400).send({
+            message:
+              "You cannot declare a winner before the contest deadline ends",
+          });
         }
 
         if (contest.winner?.status === "declared") {
