@@ -7,3 +7,4 @@ dist-ssr
 .vscode
 
 serviceAccountKey.json
+.vercel
