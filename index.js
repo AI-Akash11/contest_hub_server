@@ -156,6 +156,14 @@ async function run() {
     app.patch("/user/update", verifyJWT, async (req, res) => {
       const email = req.tokenEmail;
       const { name, bio, image } = req.body;
+      console.log(name, bio, image);
+
+      if (!name || !image || !bio) {
+        return res.status(400).send({
+          message: "Name, bio and image are required",
+        });
+      }
+
       const result = await usersCollection.updateOne(
         { email },
         {
@@ -209,12 +217,78 @@ async function run() {
 
     // all contest api-----------------------------------------------------
     app.get("/all-contests", async (req, res) => {
-      const query = { status: "approved" };
-      const result = await contestsCollection
-        .find(query)
-        .sort({ deadline: -1 })
-        .toArray();
-      res.send(result);
+      const { page = 1, limit = 12, search = "", category = "" } = req.query;
+      const skip = (parseInt(page) - 1) * parseInt(limit);
+
+      // query
+      let query = { status: "approved" };
+
+      if (category && category !== "All") {
+        query.contestType = category;
+      }
+
+      if (search.trim()) {
+        const searchRegex = new RegExp(search.trim(), "i");
+        query.$or = [
+          { name: searchRegex },
+          { contestType: searchRegex },
+          { "creator.name": searchRegex },
+        ];
+      }
+
+      try {
+        const total = await contestsCollection.countDocuments(query);
+        const contests = await contestsCollection
+          .find(query)
+          .sort({ deadline: -1 })
+          .skip(skip)
+          .limit(parseInt(limit))
+          .toArray();
+
+        res.send({ contests, total });
+      } catch (error) {
+        res.status(500).send({ message: "Server error" });
+      }
+    });
+
+    app.get("/contest-categories", async (req, res) => {
+      const { search = "" } = req.query;
+
+      let match = { status: "approved" };
+
+      if (search.trim()) {
+        const searchRegex = new RegExp(search.trim(), "i");
+        match.$or = [
+          { name: searchRegex },
+          { contestType: searchRegex },
+          { "creator.name": searchRegex },
+        ];
+      }
+
+      try {
+        const aggregate = await contestsCollection
+          .aggregate([
+            { $match: match },
+            {
+              $group: {
+                _id: "$contestType",
+                count: { $sum: 1 },
+              },
+            },
+            { $sort: { _id: 1 } },
+          ])
+          .toArray();
+
+        const categories = ["All", ...aggregate.map((group) => group._id)];
+        const counts = aggregate.reduce((acc, group) => {
+          acc[group._id] = group.count;
+          return acc;
+        }, {});
+
+        res.send({ categories, counts });
+      } catch (error) {
+        res.status(500).send({ message: "Server error" });
+      }
     });
 
     // manage contest api--------------------------------------------------
@@ -527,7 +601,7 @@ async function run() {
       const result = await contestsCollection
         .find({ status: "approved" })
         .sort({ participantCount: -1 })
-        .limit(6)
+        .limit(4)
         .toArray();
       res.send(result);
     });
@@ -890,10 +964,10 @@ async function run() {
     });
 
     // Send a ping to confirm a successful connection
-    // await client.db("admin").command({ ping: 1 });
-    // console.log(
-    //   "Pinged your deployment. You successfully connected to MongoDB!",
-    // );
+    await client.db("admin").command({ ping: 1 });
+    console.log(
+      "Pinged your deployment. You successfully connected to MongoDB!",
+    );
   } finally {
     // Ensures that the client will close when you finish/error
   }
@@ -901,7 +975,7 @@ async function run() {
 run().catch(console.dir);
 
 app.get("/", (req, res) => {
-  res.send("Hello from Server..");
+  res.send("Hello from Contest Hub Server..");
 });
 
 app.listen(port, () => {
