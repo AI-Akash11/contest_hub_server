@@ -759,30 +759,51 @@ async function run() {
       },
     );
 
-    app.get("/my-winnings", verifyJWT, async (req, res) => {
-      const email = req.tokenEmail;
+app.get("/my-winnings", verifyJWT, async (req, res) => {
+  const email = req.tokenEmail;
+  const { page = 1, limit = 10 } = req.query;
+  const skip = (parseInt(page) - 1) * parseInt(limit);
 
-      const winnings = await contestsCollection
-        .find({
-          "winner.email": email,
-          "winner.status": "declared",
-        })
-        .project({
-          name: 1,
-          image: 1,
-          prizeMoney: 1,
-        })
-        .toArray();
-
-      const formatted = winnings.map((contest) => ({
-        contestId: contest._id,
-        name: contest.name,
-        image: contest.image,
-        prize: contest.prizeMoney,
-      }));
-
-      res.send(formatted);
+  try {
+    const total = await contestsCollection.countDocuments({
+      "winner.email": email,
+      "winner.status": "declared",
     });
+
+    const winnings = await contestsCollection
+      .find({
+        "winner.email": email,
+        "winner.status": "declared",
+      })
+      .project({
+        name: 1,
+        image: 1,
+        prizeMoney: 1,
+        _id: 1, // contestId
+      })
+      .sort({ "winner.declaredAt": -1 }) // most recent win first
+      .skip(skip)
+      .limit(parseInt(limit))
+      .toArray();
+
+    const formatted = winnings.map((contest) => ({
+      contestId: contest._id,
+      name: contest.name,
+      image: contest.image,
+      prize: contest.prizeMoney,
+    }));
+
+    res.send({
+      winnings: formatted,
+      total,
+      currentPage: parseInt(page),
+      totalPages: Math.ceil(total / parseInt(limit)),
+    });
+  } catch (error) {
+    console.error("My winnings error:", error);
+    res.status(500).send({ message: "Server error" });
+  }
+});
 
     // popular contest api------------------------------------
     app.get("/popular-contests", async (req, res) => {
@@ -882,14 +903,34 @@ async function run() {
     });
 
     // creator contest api-----------------------------------
-    app.get("/my-contests", verifyJWT, verifyCreator, async (req, res) => {
-      const email = req.tokenEmail;
-      const result = await contestsCollection
-        .find({ "creator.email": email })
-        .sort({ deadline: -1 })
-        .toArray();
-      res.send(result);
+app.get("/my-contests", verifyJWT, verifyCreator, async (req, res) => {
+  const email = req.tokenEmail;
+  const { page = 1, limit = 10 } = req.query;
+  const skip = (parseInt(page) - 1) * parseInt(limit);
+
+  try {
+    const total = await contestsCollection.countDocuments({
+      "creator.email": email,
     });
+
+    const contests = await contestsCollection
+      .find({ "creator.email": email })
+      .sort({ deadline: -1 })
+      .skip(skip)
+      .limit(parseInt(limit))
+      .toArray();
+
+    res.send({
+      contests,
+      total,
+      currentPage: parseInt(page),
+      totalPages: Math.ceil(total / parseInt(limit)),
+    });
+  } catch (error) {
+    console.error("My contests error:", error);
+    res.status(500).send({ message: "Server error" });
+  }
+});
 
     app.delete(
       "/my-contests/:contestId",
@@ -916,79 +957,87 @@ async function run() {
     );
 
     // user participated api---------------------------------
-    app.get("/my-participated", verifyJWT, async (req, res) => {
-      try {
-        const email = req.tokenEmail;
+app.get("/my-participated", verifyJWT, async (req, res) => {
+  try {
+    const email = req.tokenEmail;
+    const { page = 1, limit = 10 } = req.query;
+    const skip = (parseInt(page) - 1) * parseInt(limit);
 
-        const result = await paymentsCollection
-          .aggregate([
-            // Match payments for this user
-            {
-              $match: {
-                participantEmail: email,
-                status: "paid",
-              },
-            },
-            // Convert contestId string to ObjectId for lookup
-            {
-              $addFields: {
-                contestObjectId: { $toObjectId: "$contestId" },
-              },
-            },
-            // Join with contests collection
-            {
-              $lookup: {
-                from: "contests",
-                localField: "contestObjectId",
-                foreignField: "_id",
-                as: "contestDetails",
-              },
-            },
-            // Unwind the array (since lookup returns an array)
-            {
-              $unwind: {
-                path: "$contestDetails",
-                preserveNullAndEmptyArrays: true,
-              },
-            },
-            // Add deadline from contest to payment document
-            {
-              $addFields: {
-                deadline: "$contestDetails.deadline",
-                contestStatus: "$contestDetails.status",
-              },
-            },
-            // Sort by deadline (most recent first)
-            {
-              $sort: { deadline: -1 },
-            },
-            // Project only the fields you need
-            {
-              $project: {
-                _id: 1,
-                contestId: 1,
-                participantName: 1,
-                participantEmail: 1,
-                participantImage: 1,
-                price: 1,
-                transactionId: 1,
-                status: 1,
-                paidAt: 1,
-                name: 1,
-                image: 1,
-                deadline: 1,
-                contestStatus: 1,
-              },
-            },
-          ])
-          .toArray();
+    const result = await paymentsCollection
+      .aggregate([
+        // Match payments for this user
+        {
+          $match: {
+            participantEmail: email,
+            status: "paid",
+          },
+        },
+        // Convert contestId string to ObjectId
+        {
+          $addFields: {
+            contestObjectId: { $toObjectId: "$contestId" },
+          },
+        },
+        // Join with contests
+        {
+          $lookup: {
+            from: "contests",
+            localField: "contestObjectId",
+            foreignField: "_id",
+            as: "contestDetails",
+          },
+        },
+        { $unwind: { path: "$contestDetails", preserveNullAndEmptyArrays: true } },
+        // Add deadline & status
+        {
+          $addFields: {
+            deadline: "$contestDetails.deadline",
+            contestStatus: "$contestDetails.status",
+          },
+        },
+        // Sort by deadline (most recent first)
+        { $sort: { deadline: -1 } },
+        // Pagination
+        { $skip: skip },
+        { $limit: parseInt(limit) },
+        // Project needed fields
+        {
+          $project: {
+            _id: 1,
+            contestId: 1,
+            participantName: 1,
+            participantEmail: 1,
+            participantImage: 1,
+            price: 1,
+            transactionId: 1,
+            status: 1,
+            paidAt: 1,
+            name: 1,
+            image: 1,
+            deadline: 1,
+            contestStatus: 1,
+          },
+        },
+      ])
+      .toArray();
 
-        res.send(result);
-      } catch (error) {
-        console.error("Get participated contests error:", error);
-        res.status(500).send({ message: "Server error" });
-      }
+    // Get total count for pagination
+    const total = await paymentsCollection.countDocuments({
+      participantEmail: email,
+      status: "paid",
     });
+
+    res.send({
+      participated: result,
+      total,
+      currentPage: parseInt(page),
+      totalPages: Math.ceil(total / parseInt(limit)),
+    });
+  } catch (error) {
+    console.error("Get participated contests error:", error);
+    res.status(500).send({ message: "Server error" });
+  }
+});
 
     app.get("/check-payments/:contestId", verifyJWT, async (req, res) => {
       const { contestId } = req.params;
