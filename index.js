@@ -189,30 +189,96 @@ async function run() {
 
     // leaderboard api----------------------------------------------------
     app.get("/leaderboard", async (req, res) => {
-      const leaderboard = await usersCollection
-        .find({ "userActions.contestsWon": { $gt: 0 } })
-        .project({
-          name: 1,
-          image: 1,
-          "userActions.contestsWon": 1,
-          "userActions.totalWinnings": 1,
-        })
-        .sort({
-          "userActions.totalWinnings": -1,
-          "userActions.contestsWon": -1,
-        })
-        .limit(10)
-        .toArray();
+      const { page = 1, limit = 10 } = req.query;
+      const skip = (parseInt(page) - 1) * parseInt(limit);
 
-      const formatted = leaderboard.map((user, index) => ({
-        id: user._id,
-        rank: index + 1,
-        name: user.name,
-        avatar: user.image,
-        wins: user.userActions.contestsWon,
-        earnings: user.userActions.totalWinnings,
-      }));
-      res.send(formatted);
+      try {
+        const total = await usersCollection.countDocuments({
+          "userActions.contestsWon": { $gt: 0 },
+        });
+
+        const leaderboard = await usersCollection
+          .find({ "userActions.contestsWon": { $gt: 0 } })
+          .project({
+            name: 1,
+            image: 1,
+            "userActions.contestsWon": 1,
+            "userActions.totalWinnings": 1,
+          })
+          .sort({
+            "userActions.totalWinnings": -1,
+            "userActions.contestsWon": -1,
+          })
+          .skip(skip)
+          .limit(parseInt(limit))
+          .toArray();
+
+        const formatted = leaderboard.map((user, index) => ({
+          id: user._id,
+          rank: skip + index + 1, // correct global rank (not just page rank)
+          name: user.name,
+          avatar: user.image,
+          wins: user.userActions.contestsWon,
+          earnings: user.userActions.totalWinnings,
+        }));
+
+        res.send({
+          winners: formatted,
+          total,
+          currentPage: parseInt(page),
+          totalPages: Math.ceil(total / parseInt(limit)),
+        });
+      } catch (error) {
+        console.error("Leaderboard error:", error);
+        res.status(500).send({ message: "Server error" });
+      }
+    });
+
+    // recent winners api---------------------------
+    app.get("/recent-winners", async (req, res) => {
+      try {
+        const limit = 10;
+
+        const winners = await contestsCollection
+          .aggregate([
+            {
+              $match: {
+                "winner.status": "declared",
+              },
+            },
+            {
+              $project: {
+                contestName: "$name",
+                prizeMoney: "$prizeMoney",
+                winnerName: "$winner.name",
+                winnerImage: "$winner.image",
+                declaredAt: "$winner.declaredAt",
+              },
+            },
+            {
+              $sort: { declaredAt: -1 },
+            },
+            {
+              $limit: limit,
+            },
+          ])
+          .toArray();
+
+        // Calculate total prizes
+        const recentTotalPrizes = winners.reduce(
+          (sum, w) => sum + w.prizeMoney,
+          0,
+        );
+
+        res.send({
+          winners,
+          recentTotalPrizes,
+          totalWinners: winners.length,
+        });
+      } catch (error) {
+        console.error("Recent winners error:", error);
+        res.status(500).send({ message: "Server error" });
+      }
     });
 
     // all contest api-----------------------------------------------------
@@ -320,6 +386,38 @@ async function run() {
 
         res.send({ categories, counts });
       } catch (error) {
+        res.status(500).send({ message: "Server error" });
+      }
+    });
+
+    // stats-------------------------------------------
+    app.get("/stats", async (req, res) => {
+      try {
+        const users = await usersCollection.countDocuments();
+
+        const creators = await usersCollection.countDocuments({
+          role: "creator",
+        });
+
+        const contestsCreated = await contestsCollection.countDocuments();
+
+        const prizeAggregate = await contestsCollection
+          .aggregate([
+            { $match: { "winner.status": "declared" } },
+            { $group: { _id: null, total: { $sum: "$prizeMoney" } } },
+          ])
+          .toArray();
+
+        const prizesDistributed = prizeAggregate[0]?.total || 0;
+
+        res.send({
+          users,
+          creators,
+          contestsCreated,
+          prizesDistributed,
+        });
+      } catch (error) {
+        console.error("Stats error:", error);
         res.status(500).send({ message: "Server error" });
       }
     });
