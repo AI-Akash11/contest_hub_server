@@ -424,11 +424,29 @@ async function run() {
 
     // manage contest api--------------------------------------------------
     app.get("/admin/contests", verifyJWT, verifyAdmin, async (req, res) => {
-      const result = await contestsCollection
-        .find()
-        .sort({ createdAt: -1 })
-        .toArray();
-      res.send(result);
+      const { page = 1, limit = 10 } = req.query;
+      const skip = (parseInt(page) - 1) * parseInt(limit);
+
+      try {
+        const total = await contestsCollection.countDocuments();
+
+        const contests = await contestsCollection
+          .find()
+          .sort({ createdAt: -1 }) // newest first
+          .skip(skip)
+          .limit(parseInt(limit))
+          .toArray();
+
+        res.send({
+          contests,
+          total,
+          currentPage: parseInt(page),
+          totalPages: Math.ceil(total / parseInt(limit)),
+        });
+      } catch (error) {
+        console.error("Admin contests error:", error);
+        res.status(500).send({ message: "Server error" });
+      }
     });
 
     app.patch(
