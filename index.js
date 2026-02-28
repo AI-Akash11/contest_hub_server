@@ -624,6 +624,45 @@ async function run() {
       }
     });
 
+    // Contact form submission----------------------------------
+    app.post("/contact", async (req, res) => {
+      const { name, email, subject, message } = req.body;
+
+      // Basic server-side validation
+      if (!name || !email || !subject || !message) {
+        return res.status(400).send({ message: "All fields are required" });
+      }
+
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+        return res.status(400).send({ message: "Invalid email format" });
+      }
+
+      if (message.length < 10) {
+        return res.status(400).send({ message: "Message too short" });
+      }
+
+      try {
+        const contactData = {
+          name,
+          email,
+          subject,
+          message,
+          status: "new",
+          submittedAt: new Date(),
+        };
+
+        const result = await db.collection("contacts").insertOne(contactData);
+
+        res.status(201).send({
+          message: "Thank you! Your message has been received.",
+          contactId: result.insertedId,
+        });
+      } catch (error) {
+        console.error("Contact submission error:", error);
+        res.status(500).send({ message: "Failed to submit message" });
+      }
+    });
+
     // winner api------------------------------------
     app.patch(
       "/submissions/declare-winner/:submissionId",
