@@ -156,7 +156,7 @@ async function run() {
     app.patch("/user/update", verifyJWT, async (req, res) => {
       const email = req.tokenEmail;
       const { name, bio, image } = req.body;
-      console.log(name, bio, image);
+      // console.log(name, bio, image);
 
       if (!name || !image || !bio) {
         return res.status(400).send({
@@ -1060,7 +1060,7 @@ app.get("/my-participated", verifyJWT, async (req, res) => {
 
     app.post("/become-creator", verifyJWT, async (req, res) => {
       const email = req.tokenEmail;
-      console.log(email);
+      // console.log(email);
       const requestExists = await creatorRequestsCollection.findOne({ email });
       if (requestExists) {
         return res.status(400).send({
@@ -1201,10 +1201,10 @@ app.get("/my-participated", verifyJWT, async (req, res) => {
     });
 
     // Send a ping to confirm a successful connection
-    await client.db("admin").command({ ping: 1 });
-    console.log(
-      "Pinged your deployment. You successfully connected to MongoDB!",
-    );
+    // await client.db("admin").command({ ping: 1 });
+    // console.log(
+    //   "Pinged your deployment. You successfully connected to MongoDB!",
+    // );
   } finally {
     // Ensures that the client will close when you finish/error
   }
