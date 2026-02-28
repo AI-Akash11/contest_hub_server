@@ -217,7 +217,13 @@ async function run() {
 
     // all contest api-----------------------------------------------------
     app.get("/all-contests", async (req, res) => {
-      const { page = 1, limit = 12, search = "", category = "" } = req.query;
+      const {
+        page = 1,
+        limit = 12,
+        search = "",
+        category = "",
+        status = "",
+      } = req.query;
       const skip = (parseInt(page) - 1) * parseInt(limit);
 
       // query
@@ -236,8 +242,22 @@ async function run() {
         ];
       }
 
+      const now = new Date();
+      if (status === "live") {
+        query.$and = [
+          { deadline: { $gt: now } },
+          { "winner.status": { $ne: "declared" } },
+        ];
+      } else if (status === "ended") {
+        query.$or = [
+          { deadline: { $lte: now } },
+          { "winner.status": "declared" },
+        ];
+      }
+
       try {
         const total = await contestsCollection.countDocuments(query);
+
         const contests = await contestsCollection
           .find(query)
           .sort({ deadline: -1 })
@@ -252,7 +272,7 @@ async function run() {
     });
 
     app.get("/contest-categories", async (req, res) => {
-      const { search = "" } = req.query;
+      const { search = "", status = "" } = req.query;
 
       let match = { status: "approved" };
 
@@ -262,6 +282,19 @@ async function run() {
           { name: searchRegex },
           { contestType: searchRegex },
           { "creator.name": searchRegex },
+        ];
+      }
+
+      const now = new Date();
+      if (status === "live") {
+        match.$and = [
+          { deadline: { $gt: now } },
+          { "winner.status": { $ne: "declared" } },
+        ];
+      } else if (status === "ended") {
+        match.$or = [
+          { deadline: { $lte: now } },
+          { "winner.status": "declared" },
         ];
       }
 
